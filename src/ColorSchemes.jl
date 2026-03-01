@@ -11,16 +11,8 @@ export get_color_palette, apply_palette
 Returns a list of colors for a given palette name.
 """
 function get_color_palette(name::Symbol)
-    if name == :fire
-        return ColorSchemes.fire.colors
-    elseif name == :ice
-        return ColorSchemes.ice.colors
-    elseif name == :rainbow
-        return ColorSchemes.rainbow.colors
-    elseif name == :magma
-        return ColorSchemes.magma.colors
-    elseif name == :viridis
-        return ColorSchemes.viridis.colors
+    if hasproperty(ColorSchemes, name)
+        return getproperty(ColorSchemes, name).colors
     else
         return ColorSchemes.viridis.colors
     end

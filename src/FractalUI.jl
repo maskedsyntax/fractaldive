@@ -11,6 +11,8 @@ function run_app()
     # Initial state
     width, height = 800, 600
     max_iter = Observable(256)
+    auto_iter = Observable(false)
+    high_precision = Observable(false)
     is_julia = Observable(false)
     julia_c = Observable(complex(-0.8, 0.156))
     palette_name = Observable(:fire)
@@ -26,22 +28,40 @@ function run_app()
     
     function update_render()
         nx, ny = width, height
-        x_range = range(xmin[], xmax[], length=nx)
-        y_range = range(ymin[], ymax[], length=ny)
         
-        # Calculate in-place
+        # Determine precision
+        T = high_precision[] ? BigFloat : Float64
+        
+        # Auto iterations: roughly proportional to zoom
+        if auto_iter[]
+            zoom_level = 3.0 / (xmax[] - xmin[])
+            # Heuristic for auto-iterations
+            new_iter = Int(clamp(round(256 * (1.0 + 0.5 * log10(max(1.0, zoom_level)))), 1, 10000))
+            if new_iter != max_iter[]
+                # We don't want to trigger another update_render via max_iter change
+                # but we need to update the UI.
+                # Makie Observables can be updated without triggering listeners if needed,
+                # but here it is fine since we check if changed.
+                max_iter[] = new_iter
+            end
+        end
+        
+        x_range = range(T(xmin[]), T(xmax[]), length=nx)
+        y_range = range(T(ymin[]), T(ymax[]), length=ny)
+        
+        # Calculate
         matrix = zeros(nx, ny)
-        render_fractal!(matrix, x_range, y_range, max_iter[]; is_julia=is_julia[], julia_c=julia_c[])
+        render_fractal!(matrix, x_range, y_range, max_iter[]; 
+                       is_julia=is_julia[], 
+                       julia_c=complex(T(real(julia_c[])), T(imag(julia_c[]))))
         data[] = matrix
     end
     
-    # Setup plot
-    fig = Figure(size=(1000, 800))
-    ax = Axis(fig[1, 1], aspect=DataAspect(), title="Mandelbrot Explorer")
+    # Setup Figure
+    fig = Figure(size=(1200, 800))
+    ax = Axis(fig[1, 1], aspect=DataAspect(), title="Fractal Explorer")
     
     # Fractal heatmap
-    # Use custom coloring via applying palette manually or using Makie's colormap
-    # To have it interactive, it is easier to use Makie's colormap
     hm = heatmap!(ax, 
         @lift(range(xmin[], xmax[], length=width)), 
         @lift(range(ymin[], ymax[], length=height)), 
@@ -50,80 +70,86 @@ function run_app()
     )
     
     # UI Controls
-    ctrl_grid = fig[1, 2] = GridLayout(tellheight=false, width=200)
+    ctrl_grid = fig[1, 2] = GridLayout(tellheight=false, width=250)
     
-    # Iteration slider
-    ctrl_grid[1, 1] = Label(fig, "Max Iterations")
-    sl_iter = Slider(fig[1, 2][2, 1], range=1:1000, startvalue=256)
+    row = 1
+    ctrl_grid[row, 1:2] = Label(fig, "Max Iterations", halign=:left)
+    row += 1
+    sl_iter = Slider(ctrl_grid[row, 1:2], range=1:10000, startvalue=256)
     connect!(max_iter, sl_iter.value)
+    row += 1
     
-    # Set type toggle
-    ctrl_grid[3, 1] = Label(fig, "Mode")
-    toggle_julia = Toggle(fig[1, 2][4, 1], active=false)
+    ctrl_grid[row, 1] = Toggle(fig, active=false)
+    ctrl_grid[row, 2] = Label(fig, "Auto Iterations", halign=:left)
+    cb_auto_iter = ctrl_grid[row, 1].content
+    connect!(auto_iter, cb_auto_iter.active)
+    row += 1
+    
+    ctrl_grid[row, 1] = Toggle(fig, active=false)
+    ctrl_grid[row, 2] = Label(fig, "High Precision", halign=:left)
+    cb_precision = ctrl_grid[row, 1].content
+    connect!(high_precision, cb_precision.active)
+    row += 1
+    
+    ctrl_grid[row, 1] = Toggle(fig, active=false)
+    ctrl_grid[row, 2] = Label(fig, "Julia Set Mode", halign=:left)
+    toggle_julia = ctrl_grid[row, 1].content
     connect!(is_julia, toggle_julia.active)
+    row += 1
     
-    # Julia parameters (only if Julia mode is on)
-    ctrl_grid[5, 1] = Label(fig, "Julia Re(c)")
-    sl_julia_re = Slider(fig[1, 2][6, 1], range=-2.0:0.01:2.0, startvalue=-0.8)
-    ctrl_grid[7, 1] = Label(fig, "Julia Im(c)")
-    sl_julia_im = Slider(fig[1, 2][8, 1], range=-2.0:0.01:2.0, startvalue=0.156)
+    ctrl_grid[row, 1:2] = Label(fig, "Julia Re(c)", halign=:left)
+    row += 1
+    sl_julia_re = Slider(ctrl_grid[row, 1:2], range=-2.0:0.01:2.0, startvalue=-0.8)
+    row += 1
+    
+    ctrl_grid[row, 1:2] = Label(fig, "Julia Im(c)", halign=:left)
+    row += 1
+    sl_julia_im = Slider(ctrl_grid[row, 1:2], range=-2.0:0.01:2.0, startvalue=0.156)
+    row += 1
     
     onany(sl_julia_re.value, sl_julia_im.value) do re, im
         julia_c[] = complex(re, im)
     end
     
-    # Color palette
-    ctrl_grid[9, 1] = Label(fig, "Palette")
-    palettes = [:fire, :ice, :rainbow, :magma, :viridis]
-    menu = Menu(fig[1, 2][10, 1], options=palettes, default=:fire)
+    ctrl_grid[row, 1:2] = Label(fig, "Palette", halign=:left)
+    row += 1
+    palettes = [:fire, :ice, :rainbow, :magma, :viridis, :inferno, :plasma, :thermal, :haline, :solar]
+    menu = Menu(ctrl_grid[row, 1:2], options=palettes, default=:fire)
     on(menu.selection) do s
         palette_name[] = s
         hm.colormap = s
     end
+    row += 1
     
-    # Export button
-    btn_export = Button(fig[1, 2][11, 1], label="Export PNG")
+    btn_export = Button(ctrl_grid[row, 1:2], label="Export PNG")
     on(btn_export.clicks) do _
-        filename = "fractal_$(round(time())).png"
+        filename = "fractal_$(round(Int, time())).png"
         export_to_png(filename, data[], palette_name[])
         println("Exported to $filename")
     end
+    row += 1
     
-    # Reset view button
-    btn_reset = Button(fig[1, 2][12, 1], label="Reset View")
+    btn_reset = Button(ctrl_grid[row, 1:2], label="Reset View")
     on(btn_reset.clicks) do _
         xmin[] = -2.0; xmax[] = 1.0; ymin[] = -1.5; ymax[] = 1.5
         update_render()
     end
+    row += 1
 
     # Status Bar
     status_bar = fig[2, 1] = Label(fig, "Ready", tellwidth=false)
     onany(xmin, xmax, ymin, ymax, max_iter) do xi, xa, yi, ya, mi
-        status_bar.text = "X: [$(round(xi, digits=4)), $(round(xa, digits=4))] Y: [$(round(yi, digits=4)), $(round(ya, digits=4))] Iter: $mi"
+        status_bar.text = "X: [$(round(xi, digits=6)), $(round(xa, digits=6))] Y: [$(round(yi, digits=6)), $(round(ya, digits=6))] Iter: $mi"
     end
     
     # Interactions: Zoom and Pan
-    # Makie has built-in zoom and pan for Axis, but we need to re-render on changes.
-    # We can listen to ax.limits.
-    on(ax.finallimits) do limits
-        # Only update if the limits actually changed significantly to avoid infinite loop
-        # But here we will manually handle zoom/pan for better control
-    end
-    
-    # Custom interaction: scroll to zoom at mouse position
     register_interaction!(ax, :zoom) do event::ScrollEvent, axis
-        # Zoom factor
         zoom_factor = event.y > 0 ? 0.8 : 1.25
-        
-        # Get mouse position in data coordinates
         mp = Makie.mouseposition(axis.scene)
         
-        # New range
         new_w = (xmax[] - xmin[]) * zoom_factor
         new_h = (ymax[] - ymin[]) * zoom_factor
         
-        # Center zoom on mouse position
-        # new_min = mp - (mp - old_min) * zoom_factor
         xmin[] = mp[1] - (mp[1] - xmin[]) * zoom_factor
         xmax[] = xmin[] + new_w
         ymin[] = mp[2] - (mp[2] - ymin[]) * zoom_factor
@@ -133,7 +159,6 @@ function run_app()
         return Consume(true)
     end
     
-    # Custom interaction: drag to pan
     last_mouse_pos = Ref{Point2f}((0, 0))
     is_dragging = Ref(false)
     
@@ -155,10 +180,6 @@ function run_app()
             ymin[] -= dy
             ymax[] -= dy
             
-            # Need to update last_mouse_pos because the plane moved
-            # Wait, if we move the plane, the mouseposition in data coordinates also changes.
-            # So we should update it.
-            # Actually, simpler to just re-render and keep dragging.
             update_render()
             last_mouse_pos[] = Makie.mouseposition(axis.scene)
             return Consume(true)
@@ -170,11 +191,10 @@ function run_app()
     update_render()
     
     # Observe changes in parameters
-    onany(max_iter, is_julia, julia_c) do _, _, _
+    onany(max_iter, is_julia, julia_c, high_precision, auto_iter) do _, _, _, _, _
         update_render()
     end
     
-    # Title update
     on(is_julia) do val
         ax.title = val ? "Julia Explorer" : "Mandelbrot Explorer"
     end

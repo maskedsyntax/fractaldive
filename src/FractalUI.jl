@@ -128,10 +128,12 @@ function run_app()
     ctrl_grid[row, 1:2] = Label(fig, "Palette", halign=:left)
     row += 1
     palettes = [:fire, :ice, :rainbow, :magma, :viridis, :inferno, :plasma, :thermal, :haline, :solar]
-    menu = Menu(ctrl_grid[row, 1:2], options=palettes, default=:fire)
+    palettes_str = string.(palettes)
+    menu = Menu(ctrl_grid[row, 1:2], options=palettes_str, default="fire")
     on(menu.selection) do s
-        palette_name[] = s
-        hm.colormap = s
+        psym = Symbol(s)
+        palette_name[] = psym
+        hm.colormap = psym
     end
     row += 1
     

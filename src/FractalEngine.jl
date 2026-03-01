@@ -94,7 +94,7 @@ function render_fractal!(
 ) where {T<:Real}
     # Check for GPU
     if output isa CuArray && x_range isa CuArray && y_range isa CuArray
-        render_fractal_gpu!(output, x_r, y_r, max_iter; is_julia=is_julia, julia_c=julia_c)
+        render_fractal_gpu!(output, x_range, y_range, max_iter; is_julia=is_julia, julia_c=julia_c)
         return
     end
 

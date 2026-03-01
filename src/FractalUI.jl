@@ -80,35 +80,47 @@ function run_app()
     # UI Controls
     ctrl_grid = fig[1, 2] = GridLayout(tellheight=false, width=250)
     
-    row = 1
+    # Iteration slider
     ctrl_grid[row, 1:2] = Label(fig, "Max Iterations", halign=:left)
     row += 1
     sl_iter = Slider(ctrl_grid[row, 1:2], range=1:10000, startvalue=256)
-    connect!(max_iter, sl_iter.value)
+    on(sl_iter.value) do val
+        max_iter[] = val
+        # update_render() is triggered by the onany listener at the bottom
+    end
     row += 1
+
     
     cb_auto_iter = Toggle(fig, active=false)
     ctrl_grid[row, 1] = cb_auto_iter
     ctrl_grid[row, 2] = Label(fig, "Auto Iterations", halign=:left)
-    connect!(auto_iter, cb_auto_iter.active)
+    on(cb_auto_iter.active) do val
+        auto_iter[] = val
+    end
     row += 1
     
     cb_precision = Toggle(fig, active=false)
     ctrl_grid[row, 1] = cb_precision
     ctrl_grid[row, 2] = Label(fig, "High Precision", halign=:left)
-    connect!(high_precision, cb_precision.active)
+    on(cb_precision.active) do val
+        high_precision[] = val
+    end
     row += 1
 
     cb_gpu = Toggle(fig, active=false)
     ctrl_grid[row, 1] = cb_gpu
     ctrl_grid[row, 2] = Label(fig, "Use GPU", halign=:left)
-    connect!(use_gpu, cb_gpu.active)
+    on(cb_gpu.active) do val
+        use_gpu[] = val
+    end
     row += 1
     
     toggle_julia = Toggle(fig, active=false)
     ctrl_grid[row, 1] = toggle_julia
     ctrl_grid[row, 2] = Label(fig, "Julia Set Mode", halign=:left)
-    connect!(is_julia, toggle_julia.active)
+    on(toggle_julia.active) do val
+        is_julia[] = val
+    end
     row += 1
     
     ctrl_grid[row, 1:2] = Label(fig, "Julia Re(c)", halign=:left)

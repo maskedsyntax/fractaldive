@@ -107,6 +107,8 @@ function render_fractal!(
                 output[i, j] = mandelbrot_pixel(p, max_iter)
             end
         end
+        # Yield periodically to allow UI events to process
+        yield()
     end
 end
 

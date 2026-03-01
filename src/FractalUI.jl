@@ -4,6 +4,7 @@ using Makie, GLMakie, Colors, CUDA
 using ..FractalEngine
 using ..FractalColorSchemes
 using ..Exporter
+using Base.Threads
 
 export run_app
 
@@ -26,42 +27,76 @@ function run_app()
     
     # Render data
     data = Observable(zeros(width, height))
+    is_rendering = Observable(false)
+    
+    # Debouncing and Task management
+    render_timer = Ref{Union{Timer, Nothing}}(nothing)
+    current_render_task = Ref{Union{Task, Nothing}}(nothing)
     
     function update_render()
-        nx, ny = width, height
-        
-        # Determine precision
-        T = high_precision[] ? BigFloat : Float64
-        
-        # Auto iterations: roughly proportional to zoom
-        if auto_iter[]
-            zoom_level = 3.0 / (xmax[] - xmin[])
-            new_iter = Int(clamp(round(256 * (1.0 + 0.5 * log10(max(1.0, zoom_level)))), 1, 10000))
-            if new_iter != max_iter[]
-                max_iter[] = new_iter
-            end
+        # Cancel any pending timer
+        if render_timer[] !== nothing
+            close(render_timer[])
+            render_timer[] = nothing
         end
         
-        if use_gpu[] && CUDA.functional() && !high_precision[]
-            # GPU Rendering
-            # Note: T is Float64 here
-            x_r = CuArray(Vector{Float64}(range(xmin[], xmax[], length=nx)))
-            y_r = CuArray(Vector{Float64}(range(ymin[], ymax[], length=ny)))
-            output_gpu = CUDA.zeros(Float64, nx, ny)
+        # Debounce: wait 0.05s before rendering to allow more events
+        render_timer[] = Timer(0.05) do t
+            # Start rendering in a background task
+            if current_render_task[] !== nothing && !istaskdone(current_render_task[])
+                # We could try to cancel it, but Julia tasks are not easily cancellable 
+                # unless they yield. For now, we just wait or spawn another.
+                # Actually, better to just let it finish but not start too many.
+            end
             
-            render_fractal!(output_gpu, x_r, y_r, max_iter[]; 
-                           is_julia=is_julia[], 
-                           julia_c=complex(Float64(real(julia_c[])), Float64(imag(julia_c[]))))
-            data[] = Array(output_gpu)
-        else
-            # CPU Rendering
-            x_range = range(T(xmin[]), T(xmax[]), length=nx)
-            y_range = range(T(ymin[]), T(ymax[]), length=ny)
-            matrix = zeros(nx, ny)
-            render_fractal!(matrix, x_range, y_range, max_iter[]; 
-                           is_julia=is_julia[], 
-                           julia_c=complex(T(real(julia_c[])), T(imag(julia_c[]))))
-            data[] = matrix
+            is_rendering[] = true
+            current_render_task[] = Threads.@spawn begin
+                try
+                    nx, ny = width, height
+                    T = high_precision[] ? BigFloat : Float64
+                    
+                    if auto_iter[]
+                        zoom_level = 3.0 / (xmax[] - xmin[])
+                        new_iter = Int(clamp(round(256 * (1.0 + 0.5 * log10(max(1.0, zoom_level)))), 1, 10000))
+                        if new_iter != max_iter[]
+                            # Update max_iter without triggering another update_render
+                            # We can't easily do that with Observable, so we just set it.
+                            # It might trigger another update_render, but the timer will debounce it.
+                            max_iter[] = new_iter
+                        end
+                    end
+                    
+                    if use_gpu[] && CUDA.functional() && !high_precision[]
+                        # GPU Rendering
+                        x_r = CuArray(Vector{Float64}(range(xmin[], xmax[], length=nx)))
+                        y_r = CuArray(Vector{Float64}(range(ymin[], ymax[], length=ny)))
+                        output_gpu = CUDA.zeros(Float64, nx, ny)
+                        
+                        render_fractal!(output_gpu, x_r, y_r, max_iter[]; 
+                                       is_julia=is_julia[], 
+                                       julia_c=complex(Float64(real(julia_c[])), Float64(imag(julia_c[]))))
+                        # Update data on main thread
+                        schedule(Task(() -> (data[] = Array(output_gpu); is_rendering[] = false)))
+                    else
+                        # CPU Rendering
+                        x_range = range(T(xmin[]), T(xmax[]), length=nx)
+                        y_range = range(T(ymin[]), T(ymax[]), length=ny)
+                        matrix = zeros(nx, ny)
+                        render_fractal!(matrix, x_range, y_range, max_iter[]; 
+                                       is_julia=is_julia[], 
+                                       julia_c=complex(T(real(julia_c[])), T(imag(julia_c[]))))
+                        # Update data on main thread
+                        # Makie likes observable updates on main thread
+                        GLMakie.on_main() do
+                            data[] = matrix
+                            is_rendering[] = false
+                        end
+                    end
+                catch e
+                    @error "Render error" exception=(e, catch_backtrace())
+                    is_rendering[] = false
+                end
+            end
         end
     end
     
@@ -81,47 +116,40 @@ function run_app()
     ctrl_grid = fig[1, 2] = GridLayout(tellheight=false, width=250)
     
     row = 1
-    # Iteration slider
+    ctrl_grid[row, 1:2] = Label(fig, @lift($is_rendering ? "Rendering..." : "Ready"), 
+                               color=@lift($is_rendering ? :red : :black), halign=:left)
+    row += 1
+    
     ctrl_grid[row, 1:2] = Label(fig, "Max Iterations", halign=:left)
     row += 1
     sl_iter = Slider(ctrl_grid[row, 1:2], range=1:10000, startvalue=256)
     on(sl_iter.value) do val
         max_iter[] = val
-        # update_render() is triggered by the onany listener at the bottom
     end
     row += 1
-
     
     cb_auto_iter = Toggle(fig, active=false)
     ctrl_grid[row, 1] = cb_auto_iter
     ctrl_grid[row, 2] = Label(fig, "Auto Iterations", halign=:left)
-    on(cb_auto_iter.active) do val
-        auto_iter[] = val
-    end
+    on(cb_auto_iter.active) do val; auto_iter[] = val; end
     row += 1
     
     cb_precision = Toggle(fig, active=false)
     ctrl_grid[row, 1] = cb_precision
     ctrl_grid[row, 2] = Label(fig, "High Precision", halign=:left)
-    on(cb_precision.active) do val
-        high_precision[] = val
-    end
+    on(cb_precision.active) do val; high_precision[] = val; end
     row += 1
 
     cb_gpu = Toggle(fig, active=false)
     ctrl_grid[row, 1] = cb_gpu
     ctrl_grid[row, 2] = Label(fig, "Use GPU", halign=:left)
-    on(cb_gpu.active) do val
-        use_gpu[] = val
-    end
+    on(cb_gpu.active) do val; use_gpu[] = val; end
     row += 1
     
     toggle_julia = Toggle(fig, active=false)
     ctrl_grid[row, 1] = toggle_julia
     ctrl_grid[row, 2] = Label(fig, "Julia Set Mode", halign=:left)
-    on(toggle_julia.active) do val
-        is_julia[] = val
-    end
+    on(toggle_julia.active) do val; is_julia[] = val; end
     row += 1
     
     ctrl_grid[row, 1:2] = Label(fig, "Julia Re(c)", halign=:left)
@@ -229,9 +257,7 @@ function run_app()
     end
     
     display(fig)
-    # Keep the window open
     if !isinteractive()
-        # This is a bit of a hack but effective for scripts
         while isopen(ax.scene)
             sleep(0.1)
         end

@@ -17,7 +17,7 @@ Uses the smooth coloring algorithm.
     for i in 1:max_iter
         z = z*z + c
         if abs2(z) > 16.0  # Large escape radius for smoother colors
-            return (i + 1.0 - log2(log(abs(z)))) / max_iter
+            return (i + 1.0 - 0.5 * log2(log(abs2(z)))) / max_iter
         end
     end
     return 0.0
@@ -33,7 +33,7 @@ Calculates the iteration count for a point in a Julia set.
     for i in 1:max_iter
         curr_z = curr_z*curr_z + c
         if abs2(curr_z) > 16.0
-            return (i + 1.0 - log2(log(abs(curr_z)))) / max_iter
+            return (i + 1.0 - 0.5 * log2(log(abs2(curr_z)))) / max_iter
         end
     end
     return 0.0

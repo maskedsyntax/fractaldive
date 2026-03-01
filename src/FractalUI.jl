@@ -1,6 +1,6 @@
 module FractalUI
 
-using Makie, GLMakie, Colors
+using Makie, GLMakie, Colors, CUDA
 using ..FractalEngine
 using ..FractalColorSchemes
 using ..Exporter
@@ -13,6 +13,7 @@ function run_app()
     max_iter = Observable(256)
     auto_iter = Observable(false)
     high_precision = Observable(false)
+    use_gpu = Observable(false)
     is_julia = Observable(false)
     julia_c = Observable(complex(-0.8, 0.156))
     palette_name = Observable(:fire)
@@ -35,26 +36,33 @@ function run_app()
         # Auto iterations: roughly proportional to zoom
         if auto_iter[]
             zoom_level = 3.0 / (xmax[] - xmin[])
-            # Heuristic for auto-iterations
             new_iter = Int(clamp(round(256 * (1.0 + 0.5 * log10(max(1.0, zoom_level)))), 1, 10000))
             if new_iter != max_iter[]
-                # We don't want to trigger another update_render via max_iter change
-                # but we need to update the UI.
-                # Makie Observables can be updated without triggering listeners if needed,
-                # but here it is fine since we check if changed.
                 max_iter[] = new_iter
             end
         end
         
-        x_range = range(T(xmin[]), T(xmax[]), length=nx)
-        y_range = range(T(ymin[]), T(ymax[]), length=ny)
-        
-        # Calculate
-        matrix = zeros(nx, ny)
-        render_fractal!(matrix, x_range, y_range, max_iter[]; 
-                       is_julia=is_julia[], 
-                       julia_c=complex(T(real(julia_c[])), T(imag(julia_c[]))))
-        data[] = matrix
+        if use_gpu[] && CUDA.functional() && !high_precision[]
+            # GPU Rendering
+            # Note: T is Float64 here
+            x_r = CuArray(Vector{Float64}(range(xmin[], xmax[], length=nx)))
+            y_r = CuArray(Vector{Float64}(range(ymin[], ymax[], length=ny)))
+            output_gpu = CUDA.zeros(Float64, nx, ny)
+            
+            render_fractal!(output_gpu, x_r, y_r, max_iter[]; 
+                           is_julia=is_julia[], 
+                           julia_c=complex(Float64(real(julia_c[])), Float64(imag(julia_c[]))))
+            data[] = Array(output_gpu)
+        else
+            # CPU Rendering
+            x_range = range(T(xmin[]), T(xmax[]), length=nx)
+            y_range = range(T(ymin[]), T(ymax[]), length=ny)
+            matrix = zeros(nx, ny)
+            render_fractal!(matrix, x_range, y_range, max_iter[]; 
+                           is_julia=is_julia[], 
+                           julia_c=complex(T(real(julia_c[])), T(imag(julia_c[]))))
+            data[] = matrix
+        end
     end
     
     # Setup Figure
@@ -89,6 +97,12 @@ function run_app()
     ctrl_grid[row, 2] = Label(fig, "High Precision", halign=:left)
     cb_precision = ctrl_grid[row, 1].content
     connect!(high_precision, cb_precision.active)
+    row += 1
+
+    ctrl_grid[row, 1] = Toggle(fig, active=false)
+    ctrl_grid[row, 2] = Label(fig, "Use GPU", halign=:left)
+    cb_gpu = ctrl_grid[row, 1].content
+    connect!(use_gpu, cb_gpu.active)
     row += 1
     
     ctrl_grid[row, 1] = Toggle(fig, active=false)
@@ -191,7 +205,7 @@ function run_app()
     update_render()
     
     # Observe changes in parameters
-    onany(max_iter, is_julia, julia_c, high_precision, auto_iter) do _, _, _, _, _
+    onany(max_iter, is_julia, julia_c, high_precision, auto_iter, use_gpu) do _, _, _, _, _, _
         update_render()
     end
     

@@ -87,27 +87,27 @@ function run_app()
     connect!(max_iter, sl_iter.value)
     row += 1
     
-    ctrl_grid[row, 1] = Toggle(fig, active=false)
+    cb_auto_iter = Toggle(fig, active=false)
+    ctrl_grid[row, 1] = cb_auto_iter
     ctrl_grid[row, 2] = Label(fig, "Auto Iterations", halign=:left)
-    cb_auto_iter = ctrl_grid[row, 1].content
     connect!(auto_iter, cb_auto_iter.active)
     row += 1
     
-    ctrl_grid[row, 1] = Toggle(fig, active=false)
+    cb_precision = Toggle(fig, active=false)
+    ctrl_grid[row, 1] = cb_precision
     ctrl_grid[row, 2] = Label(fig, "High Precision", halign=:left)
-    cb_precision = ctrl_grid[row, 1].content
     connect!(high_precision, cb_precision.active)
     row += 1
 
-    ctrl_grid[row, 1] = Toggle(fig, active=false)
+    cb_gpu = Toggle(fig, active=false)
+    ctrl_grid[row, 1] = cb_gpu
     ctrl_grid[row, 2] = Label(fig, "Use GPU", halign=:left)
-    cb_gpu = ctrl_grid[row, 1].content
     connect!(use_gpu, cb_gpu.active)
     row += 1
     
-    ctrl_grid[row, 1] = Toggle(fig, active=false)
+    toggle_julia = Toggle(fig, active=false)
+    ctrl_grid[row, 1] = toggle_julia
     ctrl_grid[row, 2] = Label(fig, "Julia Set Mode", halign=:left)
-    toggle_julia = ctrl_grid[row, 1].content
     connect!(is_julia, toggle_julia.active)
     row += 1
     

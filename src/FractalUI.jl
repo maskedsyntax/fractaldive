@@ -1,6 +1,6 @@
 module FractalUI
 
-using Makie, GLMakie, Colors, CUDA
+using Makie, GLMakie, Colors, CUDA, FileIO
 using ..FractalEngine
 using ..FractalColorSchemes
 using ..Exporter
@@ -95,13 +95,28 @@ function run_app()
         @lift(range($ymin, $ymax, length=size($data, 2))), 
         data, 
         colormap=:fire
-    )
-    
+    # UI Controls
     ctrl_grid = fig[1, 2] = GridLayout(tellheight=false, width=250)
+
     row = 1
+    # Add logo
+    try
+        logo_img = FileIO.load(joinpath(@__DIR__, "..", "fractaldive.png"))
+        logo_ax = Axis(ctrl_grid[row, 1:2], aspect=DataAspect(), target_aspect=1.0)
+        image!(logo_ax, logo_img)
+        hidedecorations!(logo_ax)
+        hidespines!(logo_ax)
+        logo_ax.tellheight = true
+        logo_ax.height = 100
+    catch e
+        @warn "Could not load logo" exception=e
+    end
+    row += 1
+
     ctrl_grid[row, 1:2] = Label(fig, @lift($is_rendering ? "Rendering..." : "Ready"), 
                                color=@lift($is_rendering ? :red : :black), halign=:left)
     row += 1
+
     
     ctrl_grid[row, 1:2] = Label(fig, "Max Iterations", halign=:left)
     row += 1

@@ -1,6 +1,19 @@
-# FractalDive
+<p align="center">
+  <img src="fractaldive.png" alt="FractalDive Logo" width="200">
+</p>
 
-A high-performance, interactive explorer for Mandelbrot and Julia sets built in Julia.
+<h1 align="center">FractalDive</h1>
+
+<p align="center">
+  A high-performance, interactive explorer for Mandelbrot and Julia sets built in Julia.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/julia-v1.9+-9558B2?logo=julia" alt="Julia Version">
+  <img src="https://img.shields.io/github/license/maskedsyntax/fractaldive" alt="License">
+</p>
+
+---
 
 ## Features
 - **Smooth Navigation:** Real-time zooming (scroll) and panning (drag) across the complex plane.

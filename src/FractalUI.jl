@@ -80,6 +80,7 @@ function run_app()
     # UI Controls
     ctrl_grid = fig[1, 2] = GridLayout(tellheight=false, width=250)
     
+    row = 1
     # Iteration slider
     ctrl_grid[row, 1:2] = Label(fig, "Max Iterations", halign=:left)
     row += 1

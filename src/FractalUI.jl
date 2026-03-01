@@ -87,6 +87,7 @@ function run_app()
         end
     end
     
+    # Setup Figure with explicit size
     fig = Figure(size=(1200, 800))
     ax = Axis(fig[1, 1], aspect=DataAspect(), title="Fractal Explorer")
     
@@ -96,28 +97,31 @@ function run_app()
         data, 
         colormap=:fire
     )
-    # UI Controls
-    ctrl_grid = fig[1, 2] = GridLayout(tellheight=false, width=250)
-
+    
+    # UI Controls - Vertically centered
+    ctrl_grid = fig[1, 2] = GridLayout(tellheight=false, width=250, valign=:center)
     row = 1
+    
     # Add logo
     try
-        logo_img = FileIO.load(joinpath(@__DIR__, "..", "fractaldive.png"))
-        logo_ax = Axis(ctrl_grid[row, 1:2], aspect=DataAspect(), target_aspect=1.0)
-        image!(logo_ax, logo_img)
-        hidedecorations!(logo_ax)
-        hidespines!(logo_ax)
-        logo_ax.tellheight = true
-        logo_ax.height = 100
+        logo_path = joinpath(@__DIR__, "..", "fractaldive.png")
+        if isfile(logo_path)
+            logo_img = FileIO.load(logo_path)
+            logo_ax = Axis(ctrl_grid[row, 1:2], aspect=DataAspect())
+            image!(logo_ax, logo_img)
+            hidedecorations!(logo_ax)
+            hidespines!(logo_ax)
+            logo_ax.tellheight = true
+            logo_ax.height = 120
+            row += 1
+        end
     catch e
         @warn "Could not load logo" exception=e
     end
-    row += 1
-
+    
     ctrl_grid[row, 1:2] = Label(fig, @lift($is_rendering ? "Rendering..." : "Ready"), 
                                color=@lift($is_rendering ? :red : :black), halign=:left)
     row += 1
-
     
     ctrl_grid[row, 1:2] = Label(fig, "Max Iterations", halign=:left)
     row += 1
@@ -235,7 +239,13 @@ function run_app()
     end
 
     update_render(false)
-    display(fig)
+    
+    # Display and force resize
+    screen = display(fig)
+    if screen isa GLMakie.Screen
+        resize!(screen, 1200, 800)
+    end
+    
     if !isinteractive()
         while isopen(fig.scene)
             sleep(0.1)

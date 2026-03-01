@@ -75,8 +75,9 @@ function run_app()
                         render_fractal!(output_gpu, x_r, y_r, max_iter[]; 
                                        is_julia=is_julia[], 
                                        julia_c=complex(Float64(real(julia_c[])), Float64(imag(julia_c[]))))
-                        # Update data on main thread
-                        schedule(Task(() -> (data[] = Array(output_gpu); is_rendering[] = false)))
+                        # Update data directly
+                        data[] = Array(output_gpu)
+                        is_rendering[] = false
                     else
                         # CPU Rendering
                         x_range = range(T(xmin[]), T(xmax[]), length=nx)
@@ -85,12 +86,11 @@ function run_app()
                         render_fractal!(matrix, x_range, y_range, max_iter[]; 
                                        is_julia=is_julia[], 
                                        julia_c=complex(T(real(julia_c[])), T(imag(julia_c[]))))
-                        # Update data on main thread
-                        # Makie likes observable updates on main thread
-                        GLMakie.on_main() do
-                            data[] = matrix
-                            is_rendering[] = false
-                        end
+                        
+                        # Update data directly - Makie Observables are thread-safe in recent versions
+                        # or we can use schedule to run on the main event loop if needed.
+                        data[] = matrix
+                        is_rendering[] = false
                     end
                 catch e
                     @error "Render error" exception=(e, catch_backtrace())

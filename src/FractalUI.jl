@@ -179,14 +179,14 @@ function run_app()
     is_dragging = Ref(false)
     
     register_interaction!(ax, :pan) do event::MouseEvent, axis
-        if event.type == MouseEventTypes.leftbuttondown
+        if event.type == Makie.MouseEventTypes.leftdown
             last_mouse_pos[] = Makie.mouseposition(axis.scene)
             is_dragging[] = true
             return Consume(true)
-        elseif event.type == MouseEventTypes.leftbuttonup
+        elseif event.type == Makie.MouseEventTypes.leftup
             is_dragging[] = false
             return Consume(true)
-        elseif event.type == MouseEventTypes.drag && is_dragging[]
+        elseif event.type == Makie.MouseEventTypes.leftdrag && is_dragging[]
             mp = Makie.mouseposition(axis.scene)
             dx = mp[1] - last_mouse_pos[][1]
             dy = mp[2] - last_mouse_pos[][2]

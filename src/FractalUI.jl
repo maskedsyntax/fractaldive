@@ -216,6 +216,13 @@ function run_app()
     end
     
     display(fig)
+    # Keep the window open
+    if !isinteractive()
+        # This is a bit of a hack but effective for scripts
+        while isopen(ax.scene)
+            sleep(0.1)
+        end
+    end
 end
 
 end # module

@@ -25,73 +25,60 @@ function run_app()
     ymin = Observable(-1.5)
     ymax = Observable(1.5)
     
-    # Render data
+    # UI state
     data = Observable(zeros(width, height))
     is_rendering = Observable(false)
+    is_dragging_glob = Observable(false)
     
-    # Debouncing and Task management
+    # Render management
     render_timer = Ref{Union{Timer, Nothing}}(nothing)
+    stop_signal = Ref(false)
     current_render_task = Ref{Union{Task, Nothing}}(nothing)
     
-    function update_render()
-        # Cancel any pending timer
+    function update_render(low_res=false)
+        stop_signal[] = true
         if render_timer[] !== nothing
             close(render_timer[])
-            render_timer[] = nothing
         end
         
-        # Debounce: wait 0.05s before rendering to allow more events
-        render_timer[] = Timer(0.05) do t
-            # Start rendering in a background task
-            if current_render_task[] !== nothing && !istaskdone(current_render_task[])
-                # We could try to cancel it, but Julia tasks are not easily cancellable 
-                # unless they yield. For now, we just wait or spawn another.
-                # Actually, better to just let it finish but not start too many.
-            end
-            
+        delay = low_res ? 0.01 : 0.1
+        render_timer[] = Timer(delay) do t
+            stop_signal[] = false
             is_rendering[] = true
             current_render_task[] = Threads.@spawn begin
                 try
-                    nx, ny = width, height
+                    scale = low_res ? 4 : 1
+                    nx, ny = width ÷ scale, height ÷ scale
                     T = high_precision[] ? BigFloat : Float64
                     
                     if auto_iter[]
                         zoom_level = 3.0 / (xmax[] - xmin[])
                         new_iter = Int(clamp(round(256 * (1.0 + 0.5 * log10(max(1.0, zoom_level)))), 1, 10000))
                         if new_iter != max_iter[]
-                            # Update max_iter without triggering another update_render
-                            # We can't easily do that with Observable, so we just set it.
-                            # It might trigger another update_render, but the timer will debounce it.
                             max_iter[] = new_iter
                         end
                     end
                     
                     if use_gpu[] && CUDA.functional() && !high_precision[]
-                        # GPU Rendering
                         x_r = CuArray(Vector{Float64}(range(xmin[], xmax[], length=nx)))
                         y_r = CuArray(Vector{Float64}(range(ymin[], ymax[], length=ny)))
                         output_gpu = CUDA.zeros(Float64, nx, ny)
-                        
-                        render_fractal!(output_gpu, x_r, y_r, max_iter[]; 
-                                       is_julia=is_julia[], 
-                                       julia_c=complex(Float64(real(julia_c[])), Float64(imag(julia_c[]))))
-                        # Update data directly
-                        data[] = Array(output_gpu)
-                        is_rendering[] = false
+                        render_fractal!(output_gpu, x_r, y_r, max_iter[]; is_julia=is_julia[], julia_c=complex(Float64(real(julia_c[])), Float64(imag(julia_c[]))))
+                        matrix = Array(output_gpu)
                     else
-                        # CPU Rendering
                         x_range = range(T(xmin[]), T(xmax[]), length=nx)
                         y_range = range(T(ymin[]), T(ymax[]), length=ny)
                         matrix = zeros(nx, ny)
                         render_fractal!(matrix, x_range, y_range, max_iter[]; 
                                        is_julia=is_julia[], 
-                                       julia_c=complex(T(real(julia_c[])), T(imag(julia_c[]))))
-                        
-                        # Update data directly - Makie Observables are thread-safe in recent versions
-                        # or we can use schedule to run on the main event loop if needed.
-                        data[] = matrix
-                        is_rendering[] = false
+                                       julia_c=complex(T(real(julia_c[])), T(imag(julia_c[]))),
+                                       stop_signal=stop_signal)
                     end
+                    
+                    if !stop_signal[]
+                        data[] = matrix
+                    end
+                    is_rendering[] = false
                 catch e
                     @error "Render error" exception=(e, catch_backtrace())
                     is_rendering[] = false
@@ -100,21 +87,17 @@ function run_app()
         end
     end
     
-    # Setup Figure
     fig = Figure(size=(1200, 800))
     ax = Axis(fig[1, 1], aspect=DataAspect(), title="Fractal Explorer")
     
-    # Fractal heatmap
     hm = heatmap!(ax, 
-        @lift(range($xmin, $xmax, length=width)), 
-        @lift(range($ymin, $ymax, length=height)), 
+        @lift(range($xmin, $xmax, length=size($data, 1))), 
+        @lift(range($ymin, $ymax, length=size($data, 2))), 
         data, 
         colormap=:fire
     )
     
-    # UI Controls
     ctrl_grid = fig[1, 2] = GridLayout(tellheight=false, width=250)
-    
     row = 1
     ctrl_grid[row, 1:2] = Label(fig, @lift($is_rendering ? "Rendering..." : "Ready"), 
                                color=@lift($is_rendering ? :red : :black), halign=:left)
@@ -123,9 +106,7 @@ function run_app()
     ctrl_grid[row, 1:2] = Label(fig, "Max Iterations", halign=:left)
     row += 1
     sl_iter = Slider(ctrl_grid[row, 1:2], range=1:10000, startvalue=256)
-    on(sl_iter.value) do val
-        max_iter[] = val
-    end
+    on(sl_iter.value) do val; max_iter[] = val; end
     row += 1
     
     cb_auto_iter = Toggle(fig, active=false)
@@ -189,77 +170,60 @@ function run_app()
     btn_reset = Button(ctrl_grid[row, 1:2], label="Reset View")
     on(btn_reset.clicks) do _
         xmin[] = -2.0; xmax[] = 1.0; ymin[] = -1.5; ymax[] = 1.5
-        update_render()
+        update_render(false)
     end
     row += 1
 
-    # Status Bar
-    status_bar = fig[2, 1] = Label(fig, "Ready", tellwidth=false)
-    onany(xmin, xmax, ymin, ymax, max_iter) do xi, xa, yi, ya, mi
-        status_bar.text = "X: [$(round(xi, digits=6)), $(round(xa, digits=6))] Y: [$(round(yi, digits=6)), $(round(ya, digits=6))] Iter: $mi"
-    end
-    
-    # Interactions: Zoom and Pan
     register_interaction!(ax, :zoom) do event::ScrollEvent, axis
         zoom_factor = event.y > 0 ? 0.8 : 1.25
         mp = Makie.mouseposition(axis.scene)
-        
         new_w = (xmax[] - xmin[]) * zoom_factor
         new_h = (ymax[] - ymin[]) * zoom_factor
-        
         xmin[] = mp[1] - (mp[1] - xmin[]) * zoom_factor
         xmax[] = xmin[] + new_w
         ymin[] = mp[2] - (mp[2] - ymin[]) * zoom_factor
         ymax[] = ymin[] + new_h
-        
-        update_render()
+        update_render(false)
         return Consume(true)
     end
     
     last_mouse_pos = Ref{Point2f}((0, 0))
-    is_dragging = Ref(false)
-    
     register_interaction!(ax, :pan) do event::MouseEvent, axis
         if event.type == Makie.MouseEventTypes.leftdown
             last_mouse_pos[] = Makie.mouseposition(axis.scene)
-            is_dragging[] = true
+            is_dragging_glob[] = true
             return Consume(true)
         elseif event.type == Makie.MouseEventTypes.leftup
-            is_dragging[] = false
+            is_dragging_glob[] = false
+            update_render(false)
             return Consume(true)
-        elseif event.type == Makie.MouseEventTypes.leftdrag && is_dragging[]
+        elseif event.type == Makie.MouseEventTypes.leftdrag && is_dragging_glob[]
             mp = Makie.mouseposition(axis.scene)
             dx = mp[1] - last_mouse_pos[][1]
             dy = mp[2] - last_mouse_pos[][2]
-            
-            xmin[] -= dx
-            xmax[] -= dx
-            ymin[] -= dy
-            ymax[] -= dy
-            
-            update_render()
+            xmin[] -= dx; xmax[] -= dx; ymin[] -= dy; ymax[] -= dy
+            update_render(true)
             last_mouse_pos[] = Makie.mouseposition(axis.scene)
             return Consume(true)
         end
         return Consume(false)
     end
     
-    # Initial render
-    update_render()
-    
-    # Observe changes in parameters
     onany(max_iter, is_julia, julia_c, high_precision, auto_iter, use_gpu) do _, _, _, _, _, _
-        update_render()
+        update_render(false)
     end
     
-    on(is_julia) do val
-        ax.title = val ? "Julia Explorer" : "Mandelbrot Explorer"
+    status_bar = fig[2, 1] = Label(fig, "Ready", tellwidth=false)
+    onany(xmin, xmax, ymin, ymax, max_iter) do xi, xa, yi, ya, mi
+        status_bar.text = "Threads: $(Threads.nthreads()) | Zoom: $(round(3.0/(xa-xi), digits=2))x | Iter: $mi"
     end
-    
+
+    update_render(false)
     display(fig)
     if !isinteractive()
-        while isopen(ax.scene)
+        while isopen(fig.scene)
             sleep(0.1)
+            yield()
         end
     end
 end

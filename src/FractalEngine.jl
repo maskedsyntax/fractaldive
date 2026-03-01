@@ -79,7 +79,7 @@ end
 
 """
     render_fractal!(output::AbstractMatrix, x_range, y_range, max_iter::Int; 
-                   is_julia=false, julia_c=complex(0.0, 0.0))
+                   is_julia=false, julia_c=complex(0.0, 0.0), stop_signal=nothing)
 
 Renders a fractal into the output matrix using multi-threading or GPU.
 """
@@ -89,16 +89,22 @@ function render_fractal!(
     y_range::AbstractVector{T}, 
     max_iter::Int; 
     is_julia::Bool=false, 
-    julia_c::Complex{T}=complex(zero(T), zero(T))
+    julia_c::Complex{T}=complex(zero(T), zero(T)),
+    stop_signal=nothing
 ) where {T<:Real}
     # Check for GPU
     if output isa CuArray && x_range isa CuArray && y_range isa CuArray
-        render_fractal_gpu!(output, x_range, y_range, max_iter; is_julia=is_julia, julia_c=julia_c)
+        render_fractal_gpu!(output, x_r, y_r, max_iter; is_julia=is_julia, julia_c=julia_c)
         return
     end
 
     nx, ny = size(output)
     @threads for j in 1:ny
+        # Check stop signal periodically
+        if stop_signal !== nothing && stop_signal[]
+            break
+        end
+        
         @inbounds for i in 1:nx
             p = complex(x_range[i], y_range[j])
             if is_julia
@@ -107,7 +113,7 @@ function render_fractal!(
                 output[i, j] = mandelbrot_pixel(p, max_iter)
             end
         end
-        # Yield periodically to allow UI events to process
+        # Yield more frequently to allow UI events to process
         yield()
     end
 end

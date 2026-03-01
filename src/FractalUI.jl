@@ -95,6 +95,7 @@ function run_app()
         @lift(range($ymin, $ymax, length=size($data, 2))), 
         data, 
         colormap=:fire
+    )
     # UI Controls
     ctrl_grid = fig[1, 2] = GridLayout(tellheight=false, width=250)
 

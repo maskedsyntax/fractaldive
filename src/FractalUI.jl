@@ -87,8 +87,11 @@ function run_app()
         end
     end
     
-    # Setup Figure with explicit size
-    fig = Figure(size=(1200, 800))
+    # Force GLMakie config before showing
+    GLMakie.activate!(title="FractalDive Explorer", focus_on_show=true)
+    
+    # Setup Figure with explicit size (v0.19+ uses size, older resolution)
+    fig = Figure(size=(1200, 800), resolution=(1200, 800))
     ax = Axis(fig[1, 1], aspect=DataAspect(), title="Fractal Explorer")
     
     hm = heatmap!(ax, 
@@ -243,6 +246,8 @@ function run_app()
     # Display and force resize
     screen = display(fig)
     if screen isa GLMakie.Screen
+        # Small delay to let the OS map the window
+        sleep(0.5)
         resize!(screen, 1200, 800)
     end
     

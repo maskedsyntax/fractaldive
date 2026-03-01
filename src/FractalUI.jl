@@ -71,8 +71,8 @@ function run_app()
     
     # Fractal heatmap
     hm = heatmap!(ax, 
-        @lift(range(xmin[], xmax[], length=width)), 
-        @lift(range(ymin[], ymax[], length=height)), 
+        @lift(range($xmin, $xmax, length=width)), 
+        @lift(range($ymin, $ymax, length=height)), 
         data, 
         colormap=:fire
     )
